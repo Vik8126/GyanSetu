@@ -9,8 +9,10 @@ import {
   StatusBar,
   FlatList,
   Platform,
+  Animated,
+  Modal,
   TouchableWithoutFeedback,
-  Keyboard,
+  ScrollView,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +29,7 @@ import { WebView } from "react-native-webview";
 
 const { width } = Dimensions.get("window");
 
+
 const TextMain = () => {
   const webViewRefs = useRef<(WebView | null)[]>([]);
   const insets = useSafeAreaInsets();
@@ -35,6 +38,69 @@ const TextMain = () => {
 
   const [selectedText, setSelectedText] = useState("");
   const [selectionVisible, setSelectionVisible] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [pageHigh, setpageHigh] = useState(false);
+  const [scrolling, setScrolling] = useState(false);
+  const [fromSlider, setFromSlider] = useState(false);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (!scrolling) {
+      const index = viewableItems[0]?.index ?? 0;
+      setCurrentPage(index);
+    }
+  }).current;
+
+  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
+
+  const scrollToPage = (index: number) => {
+    flatListRef.current?.scrollToOffset({ offset: index * width, animated: true });
+  };
+
+  const handleScrollBegin = () => {
+    setScrolling(true);
+  };
+
+  const handleScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    setScrolling(false);
+    const offsetX = e.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / width);
+    setCurrentPage(index);
+  };
+
+  const handleSliderChange = (value: number) => {
+    const index = Math.round(value);
+    setFromSlider(true);
+    setCurrentPage(index);
+    scrollToPage(index);
+    setTimeout(() => setFromSlider(false), 500); 
+  };
+
+
+  const toggleMenu = () => {
+    if (menuVisible) {
+      // Slide down to hide
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => setMenuVisible(false));
+    } else {
+      // Slide up to show
+      setMenuVisible(true);
+      Animated.timing(slideAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
+  const menuTranslateY = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [400, 0], // Adjust this value based on how much you want it to slide up
+  });
   const [selectionPosition, setSelectionPosition] = useState({
     x: 100,
     y: 100,
@@ -42,8 +108,12 @@ const TextMain = () => {
   const [sliderValue, setSliderValue] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
 
+  const DarkMode = () => {
+    setIsDarkMode(!isDarkMode);
+  };
+
   const loremText =
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(100);
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(120);
   const MAX_CHARS = 600;
 
   const splitTextIntoPages = (text: string, maxCharsPerPage: number) => {
@@ -60,70 +130,95 @@ const TextMain = () => {
     return pages;
   };
 
+  const toggleDarkMode = () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+
+    // Add a small delay to ensure the state has updated before injecting JavaScript
+    setTimeout(() => {
+      webViewRefs.current.forEach((ref) => {
+        if (ref) {
+          ref.injectJavaScript(getInjectedJavaScript(newMode));
+        }
+      });
+    }, 100);
+  };
+
   const pages = splitTextIntoPages(loremText, MAX_CHARS);
+
   const pagesCount = pages.length;
 
-  const injectedJavaScript = `
-  const style = document.createElement('style');
-  style.innerHTML = \`
-    ::selection {
-      background: #FF5722;
-      color: white;
-    }
-    body {
-      -webkit-user-select: text;
-      user-select: text;
-      -webkit-touch-callout: none;
-      margin: 0;
-      padding: 20px;
-      font-size: 18px;
-      line-height: 1.6;
-      color: #000;
-    }
-  \`;
-  document.head.appendChild(style);
-  document.addEventListener('contextmenu', e => e.preventDefault());
+  const getInjectedJavaScript = (isDark) => `
+  (function() {
+    const style = document.createElement('style');
+    style.innerHTML = \`
+      ::selection {
+        background: #FF5722;
+        color: white;
+      }
+      body {
+        -webkit-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: none;
+        margin: 0;
+        padding: 20px;
+        font-size: 18px;
+        line-height: 1.6;
+        color: ${isDark ? "#fff" : "#000"};
+        background-color: ${isDark ? "#000" : "#fff"};
+      }
+    \`;
+    document.head.appendChild(style);
 
-  document.addEventListener("selectionchange", function () {
-    const selection = window.getSelection();
-    const selectedText = selection.toString();
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+    });
 
-    if (selectedText.length > 0) {
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      const pos = {
-        x: rect.left + (rect.width / 2),
-        y: rect.top,
-      };
+    document.addEventListener("selectionchange", function () {
+      const selection = window.getSelection();
+      const selectedText = selection.toString();
 
-      window.ReactNativeWebView.postMessage(
-        JSON.stringify({ text: selectedText, x: pos.x, y: pos.y })
-      );
-    }
-  });
-  true;
+      if (selectedText.length > 0) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const pos = {
+          x: rect.left + (rect.width / 2),
+          y: rect.top,
+        };
+
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ text: selectedText, x: pos.x, y: pos.y })
+        );
+      }
+    });
+
+    true; // required for Android
+  })();
 `;
 
   const handleMessage = (event: any) => {
-  try {
-    const { text, y } = JSON.parse(event.nativeEvent.data);
-    const { width: screenWidth } = Dimensions.get("window");
+    try {
+      const { text, y } = JSON.parse(event.nativeEvent.data);
+      const { width: screenWidth } = Dimensions.get("window");
+      const toolbarX = screenWidth / 3;
+      const toolbarHeight = -80;
 
-    const toolbarX = screenWidth / 3; // Center of screen
-    const toolbarHeight = -80;
-
-    setSelectedText(text);
-    setSelectionPosition({ x: toolbarX, y: y - toolbarHeight });
-    setSelectionVisible(true);
-  } catch (err) {
-    console.error("Invalid message from WebView:", err);
-  }
-};
-
+      setSelectedText(text);
+      setSelectionPosition({ x: toolbarX, y: y - toolbarHeight });
+      setSelectionVisible(true);
+    } catch (err) {
+      console.error("Invalid message from WebView:", err);
+    }
+  };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: isDarkMode ? "#000" : "#fff" }}
+    >
+      <StatusBar
+        barStyle={isDarkMode ? "light-content" : "dark-content"}
+        backgroundColor={isDarkMode ? "#000" : "#fff"} // or your theme bg
+      />
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton}>
@@ -145,50 +240,63 @@ const TextMain = () => {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(_, index) => `page-${index}`}
-        onMomentumScrollEnd={(event) => {
-          const pageIndex = Math.round(
-            event.nativeEvent.contentOffset.x / width
-          );
-          setSliderValue(pageIndex);
-          setCurrentPage(pageIndex);
-          setSelectionVisible(false);
-        }}
+        onScrollBeginDrag={handleScrollBegin}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollEnd={handleScrollEnd}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
         renderItem={({ item, index }) => (
           <WebView
-            ref={(ref) => (webViewRefs.current[index] = ref)}
+            ref={(ref) => {
+              if (ref) {
+                webViewRefs.current[index] = ref;
+                ref.injectJavaScript(getInjectedJavaScript(isDarkMode));
+              }
+            }}
             originWhitelist={["*"]}
             source={{
               html: `
-              <!DOCTYPE html>
-              <html>
-              <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                  body {
-                    font-size: 18px;
-                    line-height: 1.6;
-                    padding: 16px;
-                    color: #000;
-                    background-color: #fff;
-                  }
-                </style>
-              </head>
-              <body>${item}</body>
-              </html>
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <style>
+                         body {
+                          transition: background-color 0s, color 0s;
+                         }
+                     </style>
+                    </head>
+                    <body>${item}</body>
+                    </html>
               `,
             }}
-            style={{ width, flex: 1 }}
-            injectedJavaScript={injectedJavaScript}
+            style={{
+              width,
+              flex: 1,
+              backgroundColor: isDarkMode ? "#000" : "#fff",
+            }}
+            injectedJavaScript={getInjectedJavaScript(isDarkMode)}
             onMessage={handleMessage}
             scrollEnabled={true}
             showsVerticalScrollIndicator={false}
+            onLoadEnd={() => {
+              if (webViewRefs.current[index]) {
+                webViewRefs.current[index].injectJavaScript(
+                  getInjectedJavaScript(isDarkMode)
+                );
+              }
+            }}
           />
         )}
       />
 
       <View style={styles.bottomInfo}>
-        <Text style={styles.currentHeading}>Heading of current content</Text>
+        <Text
+          style={isDarkMode ? styles.currentHeadColor : styles.currentHeading}
+        >
+          Heading of current content
+        </Text>
+
         <View style={styles.progressContainer}>
           <Slider
             style={styles.slider}
@@ -221,15 +329,20 @@ const TextMain = () => {
       </View>
 
       <View style={styles.toolbar}>
-        <TouchableOpacity style={styles.toolbarButton}>
+        <TouchableOpacity onPress={toggleMenu} style={styles.toolbarButton}>
           <Feather name="menu" size={24} color="#CC3333" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.toolbarButton}>
           <Feather name="type" size={24} color="#CC3333" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.toolbarButton}>
-          <Ionicons name="moon" size={24} color="#CC3333" />
+        <TouchableOpacity onPress={toggleDarkMode} style={styles.toolbarButton}>
+          <Ionicons
+            name={isDarkMode ? "sunny" : "moon"}
+            size={24}
+            color={isDarkMode ? "#CC3333" : "#CC3333"}
+          />
         </TouchableOpacity>
+
         <TouchableOpacity style={styles.toolbarButton}>
           <FontAwesome5 name="clipboard-list" size={24} color="#CC3333" />
         </TouchableOpacity>
@@ -279,12 +392,12 @@ const TextMain = () => {
 
               // Inject JS to clear selection
               webViewRefs.current[currentPage]?.injectJavaScript(`
-      if (window.getSelection) {
-        const sel = window.getSelection();
-        if (sel.removeAllRanges) sel.removeAllRanges();
-      }
-      true;
-    `);
+                   if (window.getSelection) {
+                   const sel = window.getSelection();
+                   if (sel.removeAllRanges) sel.removeAllRanges();
+                    }
+                    true;
+                `);
             }}
           >
             <Ionicons name="close-circle-outline" size={13} color="#fff" />
@@ -292,12 +405,87 @@ const TextMain = () => {
           </TouchableOpacity>
         </View>
       )}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="none"
+        onRequestClose={toggleMenu}
+      >
+        <TouchableWithoutFeedback onPress={toggleMenu}>
+          <View style={styles.modalOverlay} />
+        </TouchableWithoutFeedback>
+
+        <Animated.View
+          style={[
+            styles.menuContainer,
+            {
+              transform: [{ translateY: menuTranslateY }],
+              backgroundColor: isDarkMode ? "#333" : "#fff",
+            },
+          ]}
+        >
+          <View style={styles.menuHeader}>
+            <Text
+              style={[
+                styles.menuTitle,
+                { color: isDarkMode ? "#fff" : "#000" },
+              ]}
+            >
+              Content
+            </Text>
+            <TouchableOpacity onPress={toggleMenu}>
+              <AntDesign
+                name="close"
+                size={24}
+                color={isDarkMode ? "#fff" : "#000"}
+              />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.menuContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {Array.from({ length: pagesCount }, (_, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.menuCont}
+                onPress={() => {
+                  scrollViewRef.current?.scrollToOffset({
+                    offset: i * width,
+                    animated: true,
+                  });
+                  setSliderValue(i);
+                  setCurrentPage(i);
+                  setMenuVisible(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.menuItem,
+                    { color: isDarkMode ? "#fff" : "#000" },
+                  ]}
+                >
+                  Heading of current content {i + 1}
+                </Text>
+                <Text
+                  style={[
+                    styles.progressText,
+                    { color: isDarkMode ? "#fff" : "#000" },
+                  ]}
+                >
+                  {(((i + 1) / pagesCount) * 100).toFixed(0)}%
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </Animated.View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -325,6 +513,12 @@ const styles = StyleSheet.create({
   },
   bottomInfo: { paddingHorizontal: 20, paddingTop: 10 },
   currentHeading: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+  currentHeadColor: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#fff",
+  },
   progressContainer: { marginBottom: 10 },
   slider: { width: "100%", height: 40 },
   progressInfo: {
@@ -363,6 +557,65 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: "center",
     color: "#fff",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  menuContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: "70%", // Adjust height as needed
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 0,
+  },
+  menuHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  menuTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  menuContent: {
+    flex: 1,
+  },
+  menuItem: {
+    fontSize: 20,
+    paddingVertical: 12,
+  },
+  menuCont: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  progressBarContainer: {
+    marginTop: 20,
+    alignItems: "center",
+  },
+  progressBar: {
+    height: 6,
+    width: "100%",
+    backgroundColor: "#e0e0e0",
+    borderRadius: 3,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#FF5722",
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 18,
+    fontWeight: "bold",
   },
 });
 
