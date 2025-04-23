@@ -26,9 +26,9 @@ import {
   Entypo,
 } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
+import NotesModal from "../../Components/Modals/NotesModal";
 
 const { width } = Dimensions.get("window");
-
 
 const TextMain = () => {
   const webViewRefs = useRef<(WebView | null)[]>([]);
@@ -40,10 +40,10 @@ const TextMain = () => {
   const [selectionVisible, setSelectionVisible] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-  const [pageHigh, setpageHigh] = useState(false);
   const [scrolling, setScrolling] = useState(false);
-  const [fromSlider, setFromSlider] = useState(false);
-  const slideAnim = useRef(new Animated.Value(0)).current;
+  const [modalVisible, setModalVisible] = useState(false);
+  const [sliderValue, setSliderValue] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (!scrolling) {
@@ -52,68 +52,48 @@ const TextMain = () => {
     }
   }).current;
 
-  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
+  const viewabilityConfig = useRef({
+    viewAreaCoveragePercentThreshold: 50,
+  }).current;
 
   const scrollToPage = (index: number) => {
-    flatListRef.current?.scrollToOffset({ offset: index * width, animated: true });
+    scrollViewRef.current?.scrollToOffset({
+      offset: index * width,
+      animated: true,
+    });
   };
 
   const handleScrollBegin = () => {
     setScrolling(true);
   };
 
-  const handleScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setScrolling(false);
-    const offsetX = e.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / width);
-    setCurrentPage(index);
-  };
-
-  const handleSliderChange = (value: number) => {
-    const index = Math.round(value);
-    setFromSlider(true);
-    setCurrentPage(index);
-    scrollToPage(index);
-    setTimeout(() => setFromSlider(false), 500); 
-  };
+  const SCROLL_DEBOUNCE_DELAY = 200;
+let scrollTimeout = null;
 
 
-  const toggleMenu = () => {
-    if (menuVisible) {
-      // Slide down to hide
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => setMenuVisible(false));
-    } else {
-      // Slide up to show
-      setMenuVisible(true);
-      Animated.timing(slideAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    }
-  };
+  const handleFlatListScroll = (event) => {
+  const x = event.nativeEvent.contentOffset.x;
+  const newPage = Math.round(x / width);
 
-  const menuTranslateY = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [400, 0], // Adjust this value based on how much you want it to slide up
-  });
+  if (scrollTimeout) {
+    clearTimeout(scrollTimeout);
+  }
+
+  scrollTimeout = setTimeout(() => {
+    setCurrentPage(newPage);
+    setSliderValue(newPage);
+  }, SCROLL_DEBOUNCE_DELAY);
+};
+
+
   const [selectionPosition, setSelectionPosition] = useState({
     x: 100,
     y: 100,
   });
-  const [sliderValue, setSliderValue] = useState(0);
-  const [currentPage, setCurrentPage] = useState(0);
-
-  const DarkMode = () => {
-    setIsDarkMode(!isDarkMode);
-  };
+  
 
   const loremText =
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(120);
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
   const MAX_CHARS = 600;
 
   const splitTextIntoPages = (text: string, maxCharsPerPage: number) => {
@@ -134,14 +114,13 @@ const TextMain = () => {
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
 
-    // Add a small delay to ensure the state has updated before injecting JavaScript
     setTimeout(() => {
       webViewRefs.current.forEach((ref) => {
         if (ref) {
           ref.injectJavaScript(getInjectedJavaScript(newMode));
         }
       });
-    }, 100);
+    }, 10);
   };
 
   const pages = splitTextIntoPages(loremText, MAX_CHARS);
@@ -167,6 +146,10 @@ const TextMain = () => {
         color: ${isDark ? "#fff" : "#000"};
         background-color: ${isDark ? "#000" : "#fff"};
       }
+            .highlight {
+      background-color:rgb(235, 193, 54);
+    }
+
     \`;
     document.head.appendChild(style);
 
@@ -192,7 +175,17 @@ const TextMain = () => {
       }
     });
 
-    true; // required for Android
+     window.highlightSelection = function () {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const span = document.createElement('span');
+    span.className = 'highlight';
+    range.surroundContents(span);
+    selection.removeAllRanges();
+  };
+
+    true;
   })();
 `;
 
@@ -235,60 +228,58 @@ const TextMain = () => {
       </View>
 
       <FlatList
-        ref={scrollViewRef}
-        data={pages}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScrollBeginDrag={handleScrollBegin}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollEnd={handleScrollEnd}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        renderItem={({ item, index }) => (
-          <WebView
-            ref={(ref) => {
-              if (ref) {
-                webViewRefs.current[index] = ref;
-                ref.injectJavaScript(getInjectedJavaScript(isDarkMode));
-              }
-            }}
-            originWhitelist={["*"]}
-            source={{
-              html: `
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <style>
-                         body {
-                          transition: background-color 0s, color 0s;
-                         }
-                     </style>
-                    </head>
-                    <body>${item}</body>
-                    </html>
-              `,
-            }}
-            style={{
-              width,
-              flex: 1,
-              backgroundColor: isDarkMode ? "#000" : "#fff",
-            }}
-            injectedJavaScript={getInjectedJavaScript(isDarkMode)}
-            onMessage={handleMessage}
-            scrollEnabled={true}
-            showsVerticalScrollIndicator={false}
-            onLoadEnd={() => {
-              if (webViewRefs.current[index]) {
-                webViewRefs.current[index].injectJavaScript(
-                  getInjectedJavaScript(isDarkMode)
-                );
-              }
-            }}
-          />
-        )}
-      />
+  ref={scrollViewRef}
+  data={pages}
+  horizontal
+  pagingEnabled
+  showsHorizontalScrollIndicator={false}
+  onScroll={handleFlatListScroll}
+  scrollEventThrottle={16}
+  renderItem={({ item, index }) => (
+    <WebView
+      ref={(ref) => {
+        if (ref) {
+          webViewRefs.current[index] = ref;
+          ref.injectJavaScript(getInjectedJavaScript(isDarkMode));
+        }
+      }}
+      originWhitelist={["*"]}
+      source={{
+        html: `
+              <!DOCTYPE html>
+              <html>
+              <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                   body {
+                    transition: background-color 0s, color 0s;
+                   }
+               </style>
+              </head>
+              <body>${item}</body>
+              </html>
+        `,
+      }}
+      style={{
+        width,
+        flex: 1,
+        backgroundColor: isDarkMode ? "#000" : "#fff",
+      }}
+      injectedJavaScript={getInjectedJavaScript(isDarkMode)}
+      onMessage={handleMessage}
+      scrollEnabled={true}
+      showsVerticalScrollIndicator={false}
+      onLoadEnd={() => {
+        if (webViewRefs.current[index]) {
+          webViewRefs.current[index].injectJavaScript(
+            getInjectedJavaScript(isDarkMode)
+          );
+        }
+      }}
+    />
+  )}
+/>
+
 
       <View style={styles.bottomInfo}>
         <Text
@@ -329,7 +320,10 @@ const TextMain = () => {
       </View>
 
       <View style={styles.toolbar}>
-        <TouchableOpacity onPress={toggleMenu} style={styles.toolbarButton}>
+        <TouchableOpacity
+          onPress={() => setMenuVisible(true)}
+          style={styles.toolbarButton}
+        >
           <Feather name="menu" size={24} color="#CC3333" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.toolbarButton}>
@@ -351,36 +345,48 @@ const TextMain = () => {
       {selectionVisible && (
         <View
           style={[
-            styles.selectionModal,
+            styles.selectionModal, { backgroundColor: isDarkMode ? "#fff" : "#000" },
             {
               left: selectionPosition.x - 80,
               top: selectionPosition.y - (Platform.OS === "ios" ? 50 : 80),
             },
           ]}
         >
-          <TouchableOpacity style={styles.selectionOption}>
-            <FontAwesome5 name="highlighter" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Highlight</Text>
+          <TouchableOpacity
+            style={[styles.selectionOption ]}
+            onPress={() => {
+              webViewRefs.current[currentPage]?.injectJavaScript(`
+                  window.highlightSelection && window.highlightSelection();
+                  true;
+              `);
+              setSelectionVisible(false);
+            }}
+          >
+            <FontAwesome5 name="highlighter" size={13}  color={ isDarkMode ? "#000" : "#fff"}  />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Highlight</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.selectionOption}
+            onPress={() => setModalVisible(true)}
+          >
+            <Foundation name="clipboard-notes" size={13} color={ isDarkMode ? "#000" : "#fff"} />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Notes</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.selectionOption}>
-            <Foundation name="clipboard-notes" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Notes</Text>
+            <MaterialIcons name="translate" size={13} color={ isDarkMode ? "#000" : "#fff"} />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Translate</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.selectionOption}>
-            <MaterialIcons name="translate" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Translate</Text>
+            <Entypo name="share" size={13} color={ isDarkMode ? "#000" : "#fff"} />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Share</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.selectionOption}>
-            <Entypo name="share" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Share</Text>
+            <Feather name="copy" size={13} color={ isDarkMode ? "#000" : "#fff"} />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Copy</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.selectionOption}>
-            <Feather name="copy" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Copy</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.selectionOption}>
-            <MaterialIcons name="error-outline" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Error</Text>
+            <MaterialIcons name="error-outline" size={13} color={ isDarkMode ? "#000" : "#fff"} />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Error</Text>
           </TouchableOpacity>
 
           {/* Close Button */}
@@ -400,87 +406,82 @@ const TextMain = () => {
                 `);
             }}
           >
-            <Ionicons name="close-circle-outline" size={13} color="#fff" />
-            <Text style={styles.selectionText}>Close</Text>
+            <Ionicons name="close-circle-outline" size={13} color={ isDarkMode ? "#000" : "#fff"} />
+            <Text style={[styles.selectionText, {color: isDarkMode ? "#000" : "#fff"}]}>Close</Text>
           </TouchableOpacity>
         </View>
       )}
-      <Modal
-        visible={menuVisible}
-        transparent={true}
-        animationType="none"
-        onRequestClose={toggleMenu}
-      >
-        <TouchableWithoutFeedback onPress={toggleMenu}>
+      <Modal visible={menuVisible} transparent={true} animationType="slide">
+        <TouchableWithoutFeedback onPress={() => setMenuVisible(!menuVisible)}>
           <View style={styles.modalOverlay} />
         </TouchableWithoutFeedback>
 
-        <Animated.View
+        <View
           style={[
-            styles.menuContainer,
-            {
-              transform: [{ translateY: menuTranslateY }],
-              backgroundColor: isDarkMode ? "#333" : "#fff",
-            },
+            styles.menuHeader,
+            { backgroundColor: isDarkMode ? "#000" : "#fff" },
           ]}
         >
-          <View style={styles.menuHeader}>
-            <Text
-              style={[
-                styles.menuTitle,
-                { color: isDarkMode ? "#fff" : "#000" },
-              ]}
-            >
-              Content
-            </Text>
-            <TouchableOpacity onPress={toggleMenu}>
-              <AntDesign
-                name="close"
-                size={24}
-                color={isDarkMode ? "#fff" : "#000"}
-              />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            style={styles.menuContent}
-            showsVerticalScrollIndicator={false}
+          <Text
+            style={[styles.menuTitle, { color: isDarkMode ? "#fff" : "#000" }]}
           >
-            {Array.from({ length: pagesCount }, (_, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.menuCont}
-                onPress={() => {
-                  scrollViewRef.current?.scrollToOffset({
-                    offset: i * width,
-                    animated: true,
-                  });
-                  setSliderValue(i);
-                  setCurrentPage(i);
-                  setMenuVisible(false);
-                }}
+            Content
+          </Text>
+          <TouchableOpacity onPress={() => setMenuVisible(!menuVisible)}>
+            <AntDesign
+              name="close"
+              size={24}
+              color={isDarkMode ? "#fff" : "#000"}
+            />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          style={[
+            styles.menuContent,
+            { backgroundColor: isDarkMode ? "#000" : "#fff" },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          {Array.from({ length: pagesCount }, (_, i) => (
+            <TouchableOpacity
+              key={i}
+              style={styles.menuCont}
+              onPress={() => {
+                scrollViewRef.current?.scrollToOffset({
+                  offset: i * width,
+                  animated: true,
+                });
+                setSliderValue(i);
+                setCurrentPage(i);
+                setMenuVisible(false);
+              }}
+            >
+              <Text
+                style={[
+                  styles.menuItem,
+                  { color: isDarkMode ? "#fff" : "#000" },
+                ]}
               >
-                <Text
-                  style={[
-                    styles.menuItem,
-                    { color: isDarkMode ? "#fff" : "#000" },
-                  ]}
-                >
-                  Heading of current content {i + 1}
-                </Text>
-                <Text
-                  style={[
-                    styles.progressText,
-                    { color: isDarkMode ? "#fff" : "#000" },
-                  ]}
-                >
-                  {(((i + 1) / pagesCount) * 100).toFixed(0)}%
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </Animated.View>
+                Heading of current content {i + 1}
+              </Text>
+              <Text
+                style={[
+                  styles.progressText,
+                  { color: isDarkMode ? "#fff" : "#000" },
+                ]}
+              >
+                {(((i + 1) / pagesCount) * 100).toFixed(0)}%
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </Modal>
+      <NotesModal
+        setModalVisible={setModalVisible}
+        modalVisible={modalVisible}
+        selectedText={selectedText}
+      />
     </SafeAreaView>
   );
 };
@@ -577,7 +578,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    paddingBottom: 20,
+    paddingTop: 15,
+    padding: 10,
   },
   menuTitle: {
     fontSize: 20,
@@ -585,6 +588,7 @@ const styles = StyleSheet.create({
   },
   menuContent: {
     flex: 1,
+    padding: 10,
   },
   menuItem: {
     fontSize: 20,
